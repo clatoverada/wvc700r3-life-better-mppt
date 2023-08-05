@@ -20,6 +20,9 @@ A small AVR-MC which only does the MPP tracking.
 The original main processor still does the monitoring and management.
 
 BILL OF MATERIALS:
+
 1x ATTINY85-20PU (PDIP-8)
+
 1x Programmer for ATTINY85 Chips
+
 1x EPCOS B72220P3271K101
