@@ -1,6 +1,7 @@
 # wvc700r3-live-better-mppt
 
 This repo is based on the great work from "mace" on Photovoltaic Forum:
+
 https://www.photovoltaikforum.com/thread/209046-wvc700r3-mppt-regler-tauschen/
 
 The MPPT controller of the WVC inverters works rather moderately to poorly. Most of the time it gets stuck somewhere and the modules run in voltage ranges where you know that something can't fit. 
