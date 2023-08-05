@@ -9,6 +9,7 @@ ATTENTION:
 The instructions here in this repo are for educational purposes only. Very high voltages occur in the units. There is danger to life and body. The modifications may only be carried out by trained personnel. The modifications will invalidate all warranty claims and approvals such as certificates. We are not responsible for any damage. You are responsible for everything yourself.
 
 INTRODUCTION:
+
 The MPPT controller of the WVC inverters works rather moderately to poorly. Most of the time it gets stuck somewhere and the modules run in voltage ranges where you know that something can't fit. 
 
 This project fixes these problems with the inverter "WVC-700R3-Live".
