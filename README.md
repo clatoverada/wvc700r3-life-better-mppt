@@ -20,6 +20,12 @@ A small AVR-MC which only does the MPP tracking.
 
 The original main processor still does the monitoring and management.
 
+OPTIONAL:
+
+If you have trouble with wrong voltages and/or currents in your wvc-600 / wvc-700 inverter you can try the built-in, non documented calbrating function:
+
+https://github.com/clatoverada/wvc700r3-live-better-mppt/wiki/Calibrate-Voltages-in-the-mobile-app
+
 BILL OF MATERIALS:
 
 1x ATTINY85-20PU (PDIP-8)
