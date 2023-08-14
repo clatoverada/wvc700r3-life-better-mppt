@@ -1,4 +1,4 @@
-# wvc700r3-live-better-mppt
+# wvc700r3-life-better-mppt
 
 This repo is based on the great work from "mace" on Photovoltaic Forum:
 
@@ -12,7 +12,7 @@ INTRODUCTION:
 
 The MPPT controller of the WVC inverters works rather moderately to poorly. Most of the time it gets stuck somewhere and the modules run in voltage ranges where you know that something can't fit. 
 
-This project fixes these problems with the inverter "WVC-700R3-Live".
+This project fixes these problems with the inverter "WVC-700R3-Life".
 
 The idea was to separate the existing processor from the switching converter. The necessary signals such as current, voltage, ZCD on the board to pick up and an own MPPT controller there to install. 
 
@@ -24,7 +24,7 @@ OPTIONAL:
 
 If you have trouble with wrong voltages and/or currents in your wvc-600 / wvc-700 inverter you can try the built-in, non documented calbrating function:
 
-https://github.com/clatoverada/wvc700r3-live-better-mppt/wiki/Calibrate-Voltages-in-the-mobile-app
+https://github.com/clatoverada/wvc700r3-life-better-mppt/wiki/Calibrate-Voltages-in-the-mobile-app
 
 BILL OF MATERIALS:
 
