@@ -36,4 +36,4 @@ BILL OF MATERIALS:
 
 1x SMD Resistor 39K (SMD 0805)
 
-1x SMD Resistor 8,2k (SMD 0805)
+1x SMD Resistor 8,2k (SMD 0603)
