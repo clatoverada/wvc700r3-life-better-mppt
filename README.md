@@ -37,3 +37,8 @@ BILL OF MATERIALS:
 1x SMD Resistor 39K (SMD 0805)
 
 1x SMD Resistor 8,2k (SMD 0603) (if you burned the original part) :-)
+
+
+For more Information visit our Wiki:
+
+https://github.com/clatoverada/wvc700r3-life-better-mppt/wiki
