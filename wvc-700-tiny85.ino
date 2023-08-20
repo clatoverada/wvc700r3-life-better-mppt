@@ -18,7 +18,7 @@ const uint8_t sinus1[] = {0,6,13,19,25,31,37,44,50,56,62,68,74,80,86,92,98,103,1
     162,157,152,147,142,136,131,126,120,115,109,103,98,92,86,80,74,68,62,56,50,
 44,37,31,25,19,13,6};
 
-const uint16_t minimalspannung_abs = 12000;  //= etwa 27V darunter kann der Wandler wegen zu geringer Ausgangsspannung an den Scheitelpunkten nicht ins Netz einspeisen
+const uint16_t minimalspannung_abs = 4100;  //= etwa 26V darunter kann der Wandler wegen zu geringer Ausgangsspannung an den Scheitelpunkten nicht ins Netz einspeisen
 const uint16_t maximalstrom = 6690; //= etwa 15A darüber wird der WR wohl verglühen
 
 volatile uint8_t U_out, counter, cnt200ms;
@@ -57,16 +57,17 @@ int main(void) {
         //wenn nix los dann messen und mittelwert aus 10 bilden, aktuelle Leistung ausrechnen und im Suchmodus die Maximalwerte speichern
         if (flag200ms==false) {
             if (cnt_a<10){
-                spannung_a += ((ADC_Read(1)*23)>>3);//1V=0,05V am ADC = Spannung um Faktor 22/8=2,875 korrigieren
-                strom_a += (ADC_Read(3)-18);//1A=0,14V am ADC / Offset etwa 0,11V bei 0A
+                spannung_a += ADC_Read(1);//1V=0,05V am ADC 
+                strom_a += ADC_Read(3);//1A=0,14V am ADC 
                 cnt_a++;
             }
             else{
                 spannung=spannung_a;
                 strom=strom_a;
-                leistung = (spannung * strom);
+                leistung = (uint32_t) spannung * U_out; // da die Strommessung recht störanfällig ist, der Wandlerstrom aber proportional zu U_out ist,
+                //kann hier statt mit dem Strom auch mit U_out gerechnet werden. Zumindest wenn die Eingangsspannung so groß ist dass der wandler sinusförmig einspeisen kann.
                 if ((Schritt==2)&&(leistung > leistung_MPP)) {
-                    spannung_MPP = spannung;
+                    spannung_MPP = spannung; //im Suchschritt suchen wir hier den Punkt mit der grösten Leistung und merken uns die Spannung dort. Auf die regeln wir später.
                     leistung_MPP = leistung;
                 }
                 cnt_a=0;
@@ -99,7 +100,6 @@ int main(void) {
                 //Wandlerstom kontinuirlich hoch fahren bis die Zellspannung auf die Minimalspannung sinkt oder der Strom auf den Maximalstrom steigt
                 //dabei den Punkt mit der grösten Leistung suchen und sich die Spannung dort merken = MPP Spannung
                 {
-
                     if (maximalspannung<spannung)maximalspannung=spannung;
                     if(teilbereichsuche){
                         if((maximalspannung-(maximalspannung>>2))>minimalspannung)minimalspannung=(maximalspannung-(maximalspannung>>2));
@@ -123,17 +123,17 @@ int main(void) {
                 }
                 case 3:
                 {
-                    //bei plötzlicher Verschattung leistung schnell reduzieren
-                    if (spannung < minimalspannung_abs) {
+                    //bei plötzlicher Verschattung leistung schnell reduzieren (Spannung fällt unter 24V)
+                    if (spannung < (minimalspannung_abs-380)) {
                         U_out = U_out >> 1;
                     }
                     //ansonsten Wandlerstrom kontinuirlich so einstellen dass die Zellen mit der in Schritt 2 gefundenen MPP Spannung laufen
                     else {
                         if ((spannung < spannung_MPP)||(strom>maximalstrom)||(temperatur>355)) { //72°C
-                            if (U_out > 0) U_out--;
+                            if (U_out > 0) U_out--; //Ausgangsstrom reduzieren
                         }
                         if ((spannung > spannung_MPP)&&(strom<maximalstrom)&&(temperatur<350)) { //68°C
-                            if (U_out < 255) U_out++;
+                            if (U_out < 255) U_out++; //Augangsstrom erhöhen
                         }
                     }
                     Langzeitzaehler++;
@@ -160,13 +160,13 @@ int main(void) {
     }
 }
 
-//Sinushalbwellen mit variabler Amplitude für den Strommodulator und den 100ms Takt für die Hauptschleife erzeugen
+//Sinushalbwellen mit variabler Amplitude für den Strommodulator und den 200ms Takt für die Hauptschleife erzeugen
 ISR(TIMER1_COMPA_vect) {
     cli();
     OCR0A = ((sinus2[counter & 0b01111111] * U_out) >> 8);
     counter++;
     if (counter == 128) { //alle 20ms
-        if (cnt200ms < 10) {
+        if (cnt200ms < 20) {
             cnt200ms++;
         }
         else {                //10 x 20ms = 200ms 
@@ -177,7 +177,10 @@ ISR(TIMER1_COMPA_vect) {
     sei();
 }
 
+
+
 //auf Netzfrequenz und Phase synchronisieren
+
 ISR(PCINT0_vect) {
     cli();
     if ((PINB & (1 << PINB4))) {
@@ -187,6 +190,7 @@ ISR(PCINT0_vect) {
     }
     sei();
 }
+
 
 void ADC_Init(void) {
     // die Versorgungsspannung AVcc als Referenz wählen:
