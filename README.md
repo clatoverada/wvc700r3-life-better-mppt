@@ -30,6 +30,8 @@ BILL OF MATERIALS:
 
 1x ATTINY85-20PU (PDIP-8)
 
+1x Ceramic Capacitor 100nF/50V axial (e.g.: KEMET C410C104M5U5TA7200) 
+
 1x Programmer for ATTINY85 Chips (e.g.: Sparkfun Tiny Programmer)
 
 1x EPCOS B72220P3271K101
