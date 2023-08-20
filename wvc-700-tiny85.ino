@@ -31,9 +31,8 @@ int main(void) {
     uint8_t Schritt=1,cnt_a=0;
     bool enable,teilbereichsuche=false;
     uint16_t spannung_MPP=0, Langzeitzaehler=0,minimalspannung=0,maximalspannung=0;
-    uint32_t leistung_MPP=0;
-    uint16_t spannung=0, strom=0, spannung_a=0, strom_a=0, temperatur=0;
-    uint32_t leistung;
+    uint32_t leistung, leistung_MPP=0;
+    uint16_t spannung=0, strom=0, temperatur=0;
 
     DDRB = 0b00000001;    //PB0 als PWM Ausgang
     TCCR0A = 0b10000011;  //Timer0 für PWM Ausgabe einstellen
@@ -54,33 +53,18 @@ int main(void) {
             Schritt = 1;
             U_out = 0;
         }
-        //wenn nix los dann messen und mittelwert aus 10 bilden, aktuelle Leistung ausrechnen und im Suchmodus die Maximalwerte speichern
-        if (flag200ms==false) {
-            if (cnt_a<10){
-                spannung_a += ADC_Read(1);//1V=0,05V am ADC 
-                strom_a += ADC_Read(3);//1A=0,14V am ADC 
-                cnt_a++;
-            }
-            else{
-                spannung=spannung_a;
-                strom=strom_a;
-                leistung = (uint32_t) spannung * U_out; // da die Strommessung recht störanfällig ist, der Wandlerstrom aber proportional zu U_out ist,
-                //kann hier statt mit dem Strom auch mit U_out gerechnet werden. Zumindest wenn die Eingangsspannung so groß ist dass der wandler sinusförmig einspeisen kann.
-                if ((Schritt==2)&&(leistung > leistung_MPP)) {
-                    spannung_MPP = spannung; //im Suchschritt suchen wir hier den Punkt mit der grösten Leistung und merken uns die Spannung dort. Auf die regeln wir später.
-                    leistung_MPP = leistung;
-                }
-                cnt_a=0;
-                spannung_a=0;
-                strom_a=0;
-            }
-        }
-        //Haupttakt alle 200ms
-        else{
-            ADMUX=0b10001111;
-            temperatur=ADC_Read(15); //Temperatur im Gehäuse messen
-            ADMUX=0;
+        if (flag200ms==true) {
             flag200ms = false;
+			spannung=0;
+			strom=0;
+			for(cnt_a=0;cnt_a<10;cnt_a++){ //Spannung und Strom messen, dabei jeweils über 10 Messungen mitteln. dauert etwa 2ms
+				spannung += ADC_Read(1);//1V=0,05V am ADC
+				strom += ADC_Read(3);//1A=0,14V am ADC
+			}
+			ADMUX=0b10001111; //Vref auf 1,1V für Temperaturmessung
+            temperatur=ADC_Read(15); //Temperatur im Gehäuse messen
+            ADMUX=0; //Vref wieder auf Vdd
+
             switch (Schritt) {
                 case 1:
                 //auf die Reglerfreigabe vom Hauptcontroller warten
@@ -100,7 +84,13 @@ int main(void) {
                 //Wandlerstom kontinuirlich hoch fahren bis die Zellspannung auf die Minimalspannung sinkt oder der Strom auf den Maximalstrom steigt
                 //dabei den Punkt mit der grösten Leistung suchen und sich die Spannung dort merken = MPP Spannung
                 {
-                    if (maximalspannung<spannung)maximalspannung=spannung;
+                    leistung = (uint32_t) spannung * U_out;// da die Strommessung recht störanfällig ist, der Wandlerstrom aber proportional zu U_out ist,
+						//kann hier statt mit dem Strom auch mit U_out gerechnet werden. Zumindest wenn die Eingangsspannung so groß ist dass der wandler sinusförmig einspeisen kann.
+					if (leistung > leistung_MPP) {
+						spannung_MPP = spannung; //im Suchschritt suchen wir hier den Punkt mit der grösten Leistung und merken uns die Spannung dort. Auf die regeln wir später.
+	                    leistung_MPP = leistung;
+                    }
+					if (maximalspannung<spannung)maximalspannung=spannung;
                     if(teilbereichsuche){
                         if((maximalspannung-(maximalspannung>>2))>minimalspannung)minimalspannung=(maximalspannung-(maximalspannung>>2));
                     }
@@ -135,7 +125,7 @@ int main(void) {
                         if ((spannung > spannung_MPP)&&(strom<maximalstrom)&&(temperatur<350)) { //68°C
                             if (U_out < 255) U_out++; //Augangsstrom erhöhen
                         }
-                    }
+					}
                     Langzeitzaehler++;
                     //alle 10 min gucken ob sich die MPP Spannung durch änderung der Zellentemperatur verschoben hat
                     //Wandlerstom dazu um 1/4 senken und Suche starten
@@ -162,8 +152,8 @@ int main(void) {
 
 //Sinushalbwellen mit variabler Amplitude für den Strommodulator und den 200ms Takt für die Hauptschleife erzeugen
 ISR(TIMER1_COMPA_vect) {
-    cli();
-    OCR0A = ((sinus2[counter & 0b01111111] * U_out) >> 8);
+	cli();
+    OCR0A= (((uint16_t) sinus2[counter & 0b01111111] * U_out) >> 8);
     counter++;
     if (counter == 128) { //alle 20ms
         if (cnt200ms < 20) {
@@ -183,9 +173,9 @@ ISR(TIMER1_COMPA_vect) {
 
 ISR(PCINT0_vect) {
     cli();
-    if ((PINB & (1 << PINB4))) {
-        if (counter > 128) OCR1C--;
-        else OCR1C++;
+    if ((PINB & (1 << PINB4))) {//Ziel ist es dass counter im Nulldurchgang 0 oder 255 ist = Anfang der Halbwelle in der sinus LUT
+        if (counter > 128) OCR1C--; //ist counter noch nicht übergelaufen machen wir das hochzähl intervall etwas schneller
+        else OCR1C++; //ist counter übergelaufen, etwas langsamer
         counter = 0;
     }
     sei();
@@ -199,7 +189,7 @@ void ADC_Init(void) {
     // ADMUX = (1<<REFS1) | (1<<REFS0);
     // Bit ADFR ("free running") in ADCSRA steht beim Einschalten
     // schon auf 0, also single conversion
-    ADCSRA = (1 << ADPS2) | (1 << ADPS1);  // Frequenzvorteiler
+    ADCSRA = (1 << ADPS2) | (1 << ADPS1)| (1 << ADPS0);  // Frequenzvorteiler CLK ADC=16000000/128=125000Hz
     ADCSRA |= (1 << ADEN);                 // ADC aktivieren
     DIDR0 = 0b00001100;
     /* nach Aktivieren des ADC wird ein "Dummy-Readout" empfohlen, man liest
