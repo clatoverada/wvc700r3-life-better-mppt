@@ -11,7 +11,8 @@ const uint8_t sinus2[] ={0,0,0,0,5,12,19,26,33,40,47,55,62,69,75,82,89,95,102,10
 	227,229,232,235,237,240,242,244,246,248,249,250,251,253,254,254,255,255,255,
 	255,255,254,254,253,251,250,249,248,246,244,242,240,237,235,232,229,227,223,
 	219,216,212,208,204,199,196,191,186,181,177,172,166,161,155,151,145,139,133,
-127,121,114,108,102,95,89,82,75,69,62,55,47,40,33,26,19,12,5,0,0,0,0,0,0,0,0,0,0};
+	127,121,114,108,102,95,89,82,75,69,62,55,47,40,33,26,19,12,5,0,0,0,0,0,0,0,0,0,0,
+	0,0,0};
 //LUT mit standard Sinus
 const uint8_t sinus1[] = {0,6,13,19,25,31,37,44,50,56,62,68,74,80,86,92,98,103,109,115,120,126,131,136,
 	142,147,152,157,162,167,171,176,180,185,189,193,197,201,205,208,212,215,219,
@@ -19,13 +20,15 @@ const uint8_t sinus1[] = {0,6,13,19,25,31,37,44,50,56,62,68,74,80,86,92,98,103,1
 	255,255,255,255,255,254,254,253,252,251,250,249,247,246,244,242,240,238,236,
 	233,231,228,225,222,219,215,212,208,205,201,197,193,189,185,180,176,171,167,
 	162,157,152,147,142,136,131,126,120,115,109,103,98,92,86,80,74,68,62,56,50,
-44,37,31,25,19,13,6};
+	44,37,31,25,19,13,6,
+	0,0,0};
 
 const uint16_t minimalspannung_abs = 410 * Mittel_aus;  //= etwa 26V darunter kann der Wandler wegen zu geringer Ausgangsspannung an den Scheitelpunkten nicht ins Netz einspeisen
 const uint16_t maximalstrom = 700 * Mittel_aus; //= etwa 15A darüber wird der WR wohl verglühen
 
-volatile uint8_t U_out, counter, cnt200ms;
-volatile bool flag200ms;
+volatile uint16_t Synccounter=0;
+volatile uint8_t U_out=0, counter=0, cnt200ms=0;
+volatile bool flag200ms=0, Sync=0;
 
 void ADC_Init();
 uint16_t ADC_Read(uint8_t channel);
@@ -42,7 +45,7 @@ int main(void) {
 	TCCR0A = 0b10000011;  //Timer0 für PWM Ausgabe einstellen
 	TCCR0B = 0b00000001;
 	TCCR1 = 0b10000100;  //Timer1 auf einen Zyklus einstellen
-	OCR1C = 157;         //um mit den Werten aus der Sinus-LUT
+	OCR1C = 156;         //um mit den Werten aus der Sinus-LUT
 	OCR1A = 0;           //Sinushalbwellen mit 50Hz auszugeben
 	TIMSK = 0b01000000;  //Freigabe Interupt Timer1
 	GIMSK = 0b00100000;  //Freigabe Pin Change Interrupt
@@ -57,9 +60,9 @@ int main(void) {
 	sei();
 	
 	while (1) {
-		//sobald die Reglerfreigabe weg geht WandlersStom abschalten und in den Warteschritt gehen
+		//sobald die Reglerfreigabe weg geht oder die Netzsyncronität verloren geht Wandler Stom abschalten und in den Warteschritt gehen
 		enable = (PINB & (1 << PINB1)) == 0;
-		if (!enable) {
+		if (!enable || !Sync) {
 			Schritt = 1;
 			U_out = 0;
 		}
@@ -87,13 +90,11 @@ int main(void) {
 			ADMUX=0b10001111;
 			temperatur=ADC_Read(15); //Temperatur im Gehäuse messen
 			ADMUX=0;
-
 			switch (Schritt) {
-				case 1:
-				//auf die Reglerfreigabe vom Hauptcontroller warten
+				case 1: //Warteschritt
+				//auf die Reglerfreigabe vom Hauptcontroller und Netzsyncronität warten
 				{
-
-					if (enable) {
+					if (enable && Sync) {
 						minimalspannung=minimalspannung_abs;
 						maximalspannung=minimalspannung_abs;
 						Langzeitzaehler = 0;
@@ -103,32 +104,32 @@ int main(void) {
 					}
 					break;
 				}
-				case 2:
+				case 2: //MPP finden Schritt
 				//Wandlerstom kontinuirlich hoch fahren bis die Zellspannung auf die Minimalspannung sinkt oder der Strom auf den Maximalstrom steigt
 				//dabei den Punkt mit der grösten Leistung suchen und sich die Spannung dort merken = MPP Spannung
 				{
-					if (maximalspannung<spannung)maximalspannung=spannung;
+					if (maximalspannung < spannung) maximalspannung = spannung;
 					if(teilbereichsuche){
-						if((maximalspannung-(maximalspannung>>2))>minimalspannung)minimalspannung=(maximalspannung-(maximalspannung>>2));
+						if((maximalspannung - (maximalspannung >> 2)) > minimalspannung) minimalspannung = (maximalspannung - (maximalspannung >> 2));
 					}
-					else minimalspannung=minimalspannung_abs;
+					else minimalspannung = minimalspannung_abs;
 					
 					if ((spannung > minimalspannung) && (strom < maximalstrom)) {
 						if (U_out < 255) {
 							U_out++;
 						}
 						else {
-							teilbereichsuche=false;
+							teilbereichsuche = false;
 							Schritt = 3;
 						}
 					}
 					else {
-						teilbereichsuche=false;
+						teilbereichsuche = false;
 						Schritt = 3;
 					}
 					break;
 				}
-				case 3:
+				case 3: //Regelbetrieb Schritt
 				{
 					//bei plötzlicher Verschattung leistung schnell reduzieren (Spannung fällt unter 24V)
 					if (spannung < (minimalspannung_abs - 38 * Mittel_aus)) {
@@ -136,10 +137,10 @@ int main(void) {
 					}
 					//ansonsten Wandlerstrom kontinuirlich so einstellen dass die Zellen mit der in Schritt 2 gefundenen MPP Spannung laufen
 					else {
-						if ((spannung < spannung_MPP)||(strom>maximalstrom)||(temperatur>355)) { //72°C
+						if ((spannung < spannung_MPP)||(strom > maximalstrom) || (temperatur > 355)) { //72°C
 							if (U_out > 0) U_out--; //Ausgangsstrom reduzieren
 						}
-						if ((spannung > spannung_MPP)&&(strom<maximalstrom)&&(temperatur<350)) { //68°C
+						if ((spannung > spannung_MPP) && (strom < maximalstrom) && (temperatur < 350)) { //68°C
 							if (U_out < 255) U_out++; //Augangsstrom erhöhen
 						}
 					}
@@ -169,14 +170,25 @@ int main(void) {
 
 //Sinushalbwellen mit variabler Amplitude für den Strommodulator und den 200ms Takt für die Hauptschleife erzeugen
 ISR(TIMER1_COMPA_vect) {
-	OCR0A = ((sinus2[counter & 0b01111111] * U_out) >> 8);
-	counter++;
-	if (counter == 128) { //alle 20ms
-		if (cnt200ms < 10) {
+	OCR0A = ((sinus2[counter] * U_out) >> 8);
+	if (Synccounter < 258)
+	{
+		Synccounter++;
+	} 
+	else
+	{
+		Sync=0;
+	}
+	if (counter < 127) { 
+		counter++;
+	}
+	else{	//alle 10ms
+		counter=0;		
+		if (cnt200ms < 20) {
 			cnt200ms++;
 		}
-		else {                //10 x 20ms = 200ms
-			cnt200ms = 0;
+		else {					//alle 20 x 10ms = 200ms
+			cnt200ms = 0;		//das Flag für die Hauptschleife setzen
 			flag200ms = true;
 		}
 	}
@@ -186,14 +198,15 @@ ISR(TIMER1_COMPA_vect) {
 
 //auf Netzfrequenz und Phase synchronisieren
 
-ISR(PCINT0_vect) {
+ISR(PCINT0_vect) { //ZCD Interupt bei 50Hz alle 20ms
 	if ((PINB & (1 << PINB4))) {
-		if (counter > 128) OCR1C--;
-		else OCR1C++;
-		counter = 0;
+		if (Synccounter < 256) OCR1C--; //Timer 1 so nachführen dass er netzsyncron läuft
+		if (Synccounter > 256) OCR1C++;
+		if (Synccounter == 256) Sync = 1; 
+		if ((Synccounter < 255) || (OCR1C < 153) || (OCR1C > 160)) Sync = 0; //Syncronität und Netzfrequenz überwachen Grenze 51,06Hz und 48,82Hz
+		Synccounter = 0;
 	}
 }
-
 
 void ADC_Init(void) {
 	// die Versorgungsspannung AVcc als Referenz wählen:
