@@ -24,10 +24,10 @@ const uint8_t sinus1[] = {0,6,13,19,25,31,37,44,50,56,62,68,74,80,86,92,98,103,1
 	0,0,0};
 
 const uint16_t minimalspannung_abs = 410 * Mittel_aus;  //= etwa 26V darunter kann der Wandler wegen zu geringer Ausgangsspannung an den Scheitelpunkten nicht ins Netz einspeisen
-const uint16_t maximalstrom = 700 * Mittel_aus; //= etwa 15A darüber wird der WR wohl verglühen
+const uint16_t maximalstrom_abs = 700 * Mittel_aus / 6; //= etwa 15A darüber wird der WR wohl verglühen
 
-volatile uint16_t Synccounter=0;
-volatile uint8_t U_out=0, counter=0, cnt200ms=0;
+volatile uint16_t Synccounter=0, abregelwert=0, cnt200ms=0;
+volatile uint8_t U_out=0, counter=0;
 volatile bool flag200ms=0, Sync=0;
 
 void ADC_Init();
@@ -36,7 +36,7 @@ uint16_t ADC_Read(uint8_t channel);
 int main(void) {
 	uint8_t Schritt=1,cnt_a=0;
 	bool enable,teilbereichsuche=false;
-	uint16_t spannung_MPP=0, Langzeitzaehler=0,minimalspannung=0,maximalspannung=0;
+	uint16_t spannung_MPP=0, Langzeitzaehler=0,minimalspannung=0,maximalspannung=0,maximalstrom=0;
 	uint32_t leistung_MPP=0;
 	uint16_t spannung=0, strom=0, spannung_a[Mittel_aus], strom_a[Mittel_aus], temperatur=0;
 	uint32_t leistung;
@@ -60,6 +60,7 @@ int main(void) {
 	sei();
 	
 	while (1) {
+
 		//sobald die Reglerfreigabe weg geht oder die Netzsyncronität verloren geht Wandler Stom abschalten und in den Warteschritt gehen
 		enable = (PINB & (1 << PINB1)) == 0;
 		if (!enable || !Sync) {
@@ -89,6 +90,7 @@ int main(void) {
 			flag200ms = false;
 			ADMUX=0b10001111;
 			temperatur=ADC_Read(15); //Temperatur im Gehäuse messen
+			maximalstrom = maximalstrom_abs * (6 - abregelwert); //aktuellen Maximalstrom aus maximalem Wechselrichterstrom und dem Abregelwert berechnen
 			ADMUX=0;
 			switch (Schritt) {
 				case 1: //Warteschritt
@@ -170,27 +172,18 @@ int main(void) {
 
 //Sinushalbwellen mit variabler Amplitude für den Strommodulator und den 200ms Takt für die Hauptschleife erzeugen
 ISR(TIMER1_COMPA_vect) {
-	OCR0A = ((sinus2[counter] * U_out) >> 8);
-	if (Synccounter < 258)
-	{
-		Synccounter++;
-	} 
-	else
+	OCR0A = (sinus2[(uint8_t)Synccounter&0b01111111] * U_out) >> 8;
+	if (cnt200ms < 1282) {
+		cnt200ms++;
+	}
+	else {					//alle 1282 x 78us = 100ms (16MHz/8/156=78us)
+		cnt200ms = 0;		//das Flag für die Hauptschleife setzen
+		flag200ms = true;
+	}
+	Synccounter++;
+	if (Synccounter > 258)
 	{
 		Sync=0;
-	}
-	if (counter < 127) { 
-		counter++;
-	}
-	else{	//alle 10ms
-		counter=0;		
-		if (cnt200ms < 20) {
-			cnt200ms++;
-		}
-		else {					//alle 20 x 10ms = 200ms
-			cnt200ms = 0;		//das Flag für die Hauptschleife setzen
-			flag200ms = true;
-		}
 	}
 }
 
@@ -201,9 +194,10 @@ ISR(TIMER1_COMPA_vect) {
 ISR(PCINT0_vect) { //ZCD Interupt bei 50Hz alle 20ms
 	if ((PINB & (1 << PINB4))) {
 		if (Synccounter < 256) OCR1C--; //Timer 1 so nachführen dass er netzsyncron läuft
-		if (Synccounter > 256) OCR1C++;
+		if (Synccounter > 256) OCR1C++; //müsste bei 50Hz bei OCR1C=156 sein
 		if (Synccounter == 256) Sync = 1; 
-		if ((Synccounter < 255) || (OCR1C < 153) || (OCR1C > 160)) Sync = 0; //Syncronität und Netzfrequenz überwachen Grenze 51,06Hz und 48,82Hz
+		if ((OCR1C < 150) || (OCR1C > 160)) Sync = 0; //Netzfrequenz überwachen Grenze 52,06Hz und 48,82Hz
+		if ((OCR1C >= 150) && (OCR1C <= 156)) abregelwert = 156 - OCR1C; //Zwischen 50 und 52Hz Leistung abregeln
 		Synccounter = 0;
 	}
 }
