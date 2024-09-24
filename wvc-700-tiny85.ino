@@ -85,7 +85,7 @@ int main(void) {
 				}
 			}
 		}
-		//Haupttakt alle 200ms
+		//Haupttakt alle 100ms
 		else{
 			flag200ms = false;
 			ADMUX=0b10001111;
