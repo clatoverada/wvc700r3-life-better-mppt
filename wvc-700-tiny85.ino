@@ -26,15 +26,15 @@ const uint8_t sinus1[] = {0,6,13,19,25,31,37,44,50,56,62,68,74,80,86,92,98,103,1
 const uint16_t minimalspannung_abs = 410 * Mittel_aus;  //= etwa 26V darunter kann der Wandler wegen zu geringer Ausgangsspannung an den Scheitelpunkten nicht ins Netz einspeisen
 const uint16_t maximalstrom_abs = 700 * Mittel_aus / 6; //= etwa 15A darüber wird der WR wohl verglühen
 
-volatile uint16_t Synccounter=0, abregelwert=0, cnt200ms=0;
+volatile uint16_t Synccounter=0, abregelwert=0, cnt100ms=0;
 volatile uint8_t U_out=0, counter=0;
-volatile bool flag200ms=0, Sync=0;
+volatile bool flag100ms=0, Sync=0;
 
 void ADC_Init();
 uint16_t ADC_Read(uint8_t channel);
 
 int main(void) {
-	uint8_t Schritt=1,cnt_a=0;
+	uint8_t Schritt=1,cnt_a=0, startverz=0;
 	bool enable,teilbereichsuche=false;
 	uint16_t spannung_MPP=0, Langzeitzaehler=0,minimalspannung=0,maximalspannung=0,maximalstrom=0;
 	uint32_t leistung_MPP=0;
@@ -68,13 +68,13 @@ int main(void) {
 			U_out = 0;
 		}
 		//wenn nix los dann messen und gleitendes Mittel aus "Mittel_aus" Werten bilden, aktuelle Leistung ausrechnen und im Suchmodus die Maximalwerte speichern
-		if (flag200ms==false) {
+		if (flag100ms==false) {
 			if (cnt_a > Mittel_aus-1) cnt_a=0;
 			spannung-=spannung_a[cnt_a];
-			spannung_a[cnt_a]= ADC_Read(1);//1V=0,05V am ADC
+			spannung_a[cnt_a]= ADC_Read(1);//1V=0,05V am ADC 3,3v=66v
 			spannung+=spannung_a[cnt_a];
 			strom-=strom_a[cnt_a];
-			strom_a[cnt_a] = ADC_Read(3);//1A=0,14V am ADC
+			strom_a[cnt_a] = ADC_Read(3);//1A=0,14V am ADC 3,3v=23,6a
 			strom+=strom_a[cnt_a];
 			cnt_a++;
 			if (Schritt==2){ //im Suchschritt suchen wir hier den Punkt mit der grösten Leistung und merken uns die Spannung dort. Auf die regeln wir später.
@@ -87,23 +87,30 @@ int main(void) {
 		}
 		//Haupttakt alle 100ms
 		else{
-			flag200ms = false;
-			ADMUX=0b10001111;
+			flag100ms = false;
+			ADMUX=0b10001111;		//ADC auf 1,1V Referenz und Temperatursensor stellen
 			temperatur=ADC_Read(15); //Temperatur im Gehäuse messen
+			ADMUX=0b00000001;		//ADC auf Vcc (3,3v) Referenz und PB2 stellen
 			maximalstrom = maximalstrom_abs * (6 - abregelwert); //aktuellen Maximalstrom aus maximalem Wechselrichterstrom und dem Abregelwert berechnen
-			ADMUX=0;
 			switch (Schritt) {
 				case 1: //Warteschritt
 				//auf die Reglerfreigabe vom Hauptcontroller und Netzsyncronität warten
 				{
 					if (enable && Sync) {
-						minimalspannung=minimalspannung_abs;
-						maximalspannung=minimalspannung_abs;
-						Langzeitzaehler = 0;
-						leistung_MPP = 0;
-						U_out = 0;
-						Schritt = 2;
+						if(startverz<50) //wenn startklar noch 5 Sekunden warten
+							startverz++;
+						else{
+							minimalspannung=minimalspannung_abs;
+							maximalspannung=minimalspannung_abs;
+							Langzeitzaehler = 0;
+							leistung_MPP = 0;
+							U_out = 0;
+							Schritt = 2;
+							startverz=0;
+						}
 					}
+					else
+						startverz=0;
 					break;
 				}
 				case 2: //MPP finden Schritt
@@ -149,7 +156,7 @@ int main(void) {
 					Langzeitzaehler++;
 					//alle 10 min gucken ob sich die MPP Spannung durch änderung der Zellentemperatur verschoben hat
 					//Wandlerstom dazu um 1/4 senken und Suche starten
-					if ((Langzeitzaehler == 3000) || (Langzeitzaehler == 6000)) {
+					if ((Langzeitzaehler == 6000) || (Langzeitzaehler == 12000)) {
 						leistung_MPP = 0;
 						U_out -= U_out >> 2;
 						teilbereichsuche=true;
@@ -157,7 +164,7 @@ int main(void) {
 					}
 					//alle 30min gucken ob sich durch verschattung ein neues globales maximum gebildet hat
 					//Wandlerstom dazu auf 1/8 absenken und Suche starten
-					if (Langzeitzaehler == 9000) {
+					if (Langzeitzaehler == 18000) {
 						leistung_MPP = 0;
 						Langzeitzaehler = 0;
 						U_out = U_out >> 3;
@@ -172,13 +179,13 @@ int main(void) {
 
 //Sinushalbwellen mit variabler Amplitude für den Strommodulator und den 200ms Takt für die Hauptschleife erzeugen
 ISR(TIMER1_COMPA_vect) {
-	OCR0A = (sinus2[(uint8_t)Synccounter&0b01111111] * U_out) >> 8;
-	if (cnt200ms < 1282) {
-		cnt200ms++;
+	OCR0A = (sinus2[(uint8_t)Synccounter&0b01111111] * (uint16_t)U_out) >> 8;
+	if (cnt100ms < 1282) {
+		cnt100ms++;
 	}
 	else {					//alle 1282 x 78us = 100ms (16MHz/8/156=78us)
-		cnt200ms = 0;		//das Flag für die Hauptschleife setzen
-		flag200ms = true;
+		cnt100ms = 0;		//das Flag für die Hauptschleife setzen
+		flag100ms = true;
 	}
 	Synccounter++;
 	if (Synccounter > 258)
