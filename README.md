@@ -44,3 +44,6 @@ BILL OF MATERIALS:
 For more Information visit our Wiki:
 
 https://github.com/clatoverada/wvc700r3-life-better-mppt/wiki
+
+# :exclamation: Attention: Development on this repo has ended :exclamation:
+Have a look at https://github.com/mace-de/WVC for a complete custom Firmware directly flashable to the main controller without all that soldering stuff.
